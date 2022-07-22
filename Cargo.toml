@@ -1,0 +1,12 @@
+[package]
+name = "conversion_api"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rocket = { version = "0.5.0-rc.2", features = ["json"] }
+once_cell = "1.13.0"
+rust_decimal = "1.25.0"
+
+[dev-dependencies]
+speculoos = "0.9.0"

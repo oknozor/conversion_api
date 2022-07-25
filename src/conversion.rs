@@ -15,7 +15,7 @@ pub static CONVERSION_TABLE: Lazy<HashSet<ConversionRule>> = Lazy::new(|| {
     let permutations = 4_i32.pow(2) as usize;
 
     // We will rely on ConversionRule Hash implementation to generate all possible rules.
-    // Since we only have a total of 16 permutation we will use a simple greedy algorithm
+    // Since we only have a total of 16 permutations we will use a simple greedy algorithm
     // to find all permutations.
     let mut rules = HashSet::with_capacity(permutations);
 
@@ -125,8 +125,8 @@ impl ConversionRule {
         };
 
         // Unfortunately some rule combination give slightly imprecise results
-        // When combining rules from metric to metric units (ex: kg -> lb -> g)
-        // when this happens we ceil the conversion factor
+        // when combining rules from metric to metric units (ex: kg -> lb -> g).
+        // When this happens we ceil the conversion factor
         let factor = if from.is_metric() && to.is_metric() && factor > 1.0 {
             factor.ceil()
         } else {

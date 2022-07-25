@@ -91,10 +91,10 @@ impl Unit {
 #[cfg(test)]
 mod test {
     use super::rocket;
-    use rocket::local::blocking::Client;
-    use rocket::http::Status;
-    use speculoos::assert_that;
     use crate::{ConversionRequest, ConversionResponse, Unit};
+    use rocket::http::Status;
+    use rocket::local::blocking::Client;
+    use speculoos::assert_that;
     use speculoos::prelude::*;
 
     #[test]
@@ -106,13 +106,11 @@ mod test {
             quantity: 1000.0,
         };
 
-        let response = client.post("/convert")
-            .json(&request)
-            .dispatch();
+        let response = client.post("/convert").json(&request).dispatch();
 
         assert_that!(response.status()).is_equal_to(Status::Ok);
         assert_that!(response.into_json())
             .is_some()
-            .is_equal_to(ConversionResponse {result: 1.0});
+            .is_equal_to(ConversionResponse { result: 1.0 });
     }
 }

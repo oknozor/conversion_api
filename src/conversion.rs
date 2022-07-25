@@ -50,7 +50,6 @@ pub static CONVERSION_TABLE: Lazy<HashSet<ConversionRule>> = Lazy::new(|| {
                         if !rules.contains(&inverted) {
                             rules.insert(inverted);
                         }
-
                     }
                 }
             }

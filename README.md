@@ -1,4 +1,4 @@
-# Conversion API 
+# Conversion API [![CI](https://github.com/oknozor/conversion_api/actions/workflows/CI.yaml/badge.svg)](https://github.com/oknozor/conversion_api/actions/workflows/CI.yaml)
 
 A REST API exposing a single endpoint to convert between weight units.
 This was done as part of a technical assessment for Climate Seed.

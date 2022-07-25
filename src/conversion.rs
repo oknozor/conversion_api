@@ -1,71 +1,74 @@
+use crate::{ConvertError, Unit};
+use once_cell::sync::Lazy;
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
-use once_cell::sync::Lazy;
-use rocket::serde::{Deserialize};
 
-const CONVERSION_TABLE: [[&str; 3]; 4] = [
+const KNOWN_CONVERSIONS: [[&str; 3]; 4] = [
     ["lb", "kg", "0.45359237"],
     ["lb", "g", "453.59237"],
     ["kg", "lb", "2.20462262"],
-    ["kg", "metric ton", "0.001"]
+    ["kg", "metric ton", "0.001"],
 ];
 
-const ALL_CONVERSION: Lazy<HashSet<ConversionRule>> = Lazy::new(|| {
-    let mut rules = HashSet::with_capacity(16);
-    CONVERSION_TABLE.iter()
-        .map(ConversionRule::from)
-        .for_each(|rule| {
-            rules.insert(rule);
-        });
+pub static CONVERSION_TABLE: Lazy<HashSet<ConversionRule>> = Lazy::new(|| {
+    // given k=4 (the number of unit) and n=2 (a conversion pair) we have a total of k^n permutations
+    let permutations = 4_i32.pow(2) as usize;
 
-    CONVERSION_TABLE.iter()
-        .map(ConversionRule::from)
-        .map(|rule| rule.invert())
+    // We will rely on ConversionRule Hash implementation to generate all possible rules.
+    // Since we only have a total of 16 permutation we will use a simple greedy algorithm
+    // to find all permutations.
+    let mut rules = HashSet::with_capacity(permutations);
+
+    // Insert known rules and their counter part in the conversion table
+    KNOWN_CONVERSIONS
+        .iter()
+        .map(ConversionRule::try_from)
+        .filter_map(Result::ok)
         .for_each(|rule| {
+            let invert_rule = rule.invert();
             rules.insert(rule);
+            rules.insert(invert_rule);
         });
 
     loop {
-        // Fill the conversion rules until we have all the possible permutations
-        if rules.len() == 16 {
+        // Fill the conversion table until we have all the possible permutations
+        if rules.len() == permutations {
             break;
         }
 
         let current_rules: HashSet<ConversionRule> = rules.clone();
 
+        // Find possible rule combination and generate a new one plus its inversion
         for rule in &current_rules {
-            current_rules.iter()
-                .filter(|other| other.from == rule.to)
-                .for_each(|other| {
-                    println!("FROM {:?}", rule);
-                    let rule = rule.combine(&other);
-
-                    println!("TO {:?}", other);
-                    println!("COMBINED {:?}", rule);
-
+            for other in &current_rules {
+                if other.from == rule.to {
+                    let rule = rule.combine(other);
                     if !rules.contains(&rule) {
                         let inverted = rule.invert();
-                        println!("INVERTED {:?}", inverted);
+
                         rules.insert(rule);
                         if !rules.contains(&inverted) {
                             rules.insert(inverted);
                         }
+
                     }
-                });
+                }
+            }
         }
     }
 
     rules
 });
 
-
+/// A conversion  from a given unit to the target unit.
 #[derive(Copy, Clone, Debug)]
 pub struct ConversionRule {
-    from: Unit,
-    to: Unit,
+    /// The unit to convert from.
+    pub from: Unit,
+    /// Target unit of the conversion rule.
+    pub to: Unit,
     factor: f64,
 }
-
 
 impl PartialEq for ConversionRule {
     fn eq(&self, other: &Self) -> bool {
@@ -83,18 +86,25 @@ impl Hash for ConversionRule {
     }
 }
 
-impl From<&[&str; 3]> for ConversionRule {
-    fn from(rule: &[&str; 3]) -> Self {
-        ConversionRule {
-            from: rule[0].into(),
-            to: rule[1].into(),
-            factor: rule[2].parse().expect("Conversion from table rule should not fail"),
-        }
+impl<'a> TryFrom<&'a [&'a str; 3]> for ConversionRule {
+    type Error = ConvertError<'a>;
+    fn try_from(rule: &'a [&'a str; 3]) -> Result<Self, ConvertError<'a>> {
+        Ok(ConversionRule {
+            from: rule[0].try_into()?,
+            to: rule[1].try_into()?,
+            factor: rule[2]
+                .parse()
+                .expect("Conversion from table rule should never fail"),
+        })
     }
 }
 
-
 impl ConversionRule {
+    /// Apply the conversion factor to the given quantity
+    pub(crate) fn convert(&self, quantity: f64) -> f64 {
+        self.factor * quantity
+    }
+
     fn invert(self) -> ConversionRule {
         ConversionRule {
             from: self.to,
@@ -103,180 +113,109 @@ impl ConversionRule {
         }
     }
 
-    fn apply_to(&self, quantity: f64) -> f64 {
-        self.factor * quantity
-    }
-
     // Combine two rule to get a new one
     fn combine(&self, other: &ConversionRule) -> ConversionRule {
         let from = self.from;
         let to = other.to;
+
         let factor = if from == to {
             1.0
         } else {
             self.factor * other.factor
         };
 
+        // Unfortunately some rule combination give slightly imprecise results
+        // When combining rules from metric to metric units (ex: kg -> lb -> g)
+        // when this happens we ceil the conversion factor
         let factor = if from.is_metric() && to.is_metric() && factor > 1.0 {
-            println!("{} -> {}", factor, factor.ceil());
             factor.ceil()
         } else {
             factor
         };
 
-        ConversionRule {
-            from,
-            to,
-            factor,
-        }
-    }
-}
-
-/// Represent a conversion command, from the given unit to the given unit
-/// with the provided quantity.
-#[derive(Deserialize)]
-#[serde(crate = "rocket::serde")]
-pub struct Conversion {
-    from: Unit,
-    to: Unit,
-    quantity: f64,
-}
-
-
-/// A Weight unit, either metric (gram, kilo, ton) or pound.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Deserialize)]
-#[serde(crate = "rocket::serde")]
-enum Unit {
-    Lb,
-    Kilo,
-    Ton,
-    Gram,
-}
-
-impl From<&str> for Unit {
-    fn from(unit: &str) -> Self {
-        match unit {
-            "lb" => Unit::Lb,
-            "g" => Unit::Gram,
-            "kg" => Unit::Kilo,
-            "metric ton" => Unit::Ton,
-            _ => todo!("error")
-        }
-    }
-}
-
-impl Conversion {
-    /// Execute the given conversion, returning the conversion result truncated after the 8th decimal digit.
-    pub fn execute(&self) -> f64 {
-        let result = self.from.convert_to(self.to, self.quantity);
-        let result = format!("{:.8}", result);
-        result.parse().expect("Back and forth conversion should never fail")
-    }
-}
-
-
-impl Unit {
-    fn is_metric(&self) -> bool {
-        matches!(self, Unit::Kilo | Unit::Ton | Unit::Gram)
-    }
-
-    fn convert_to(self, to: Unit, quantity: f64) -> f64 {
-        let rules = ALL_CONVERSION;
-        let conversion_rule = rules
-            .iter()
-            .find(|rule| rule.from == self && to == rule.to);
-
-        if let Some(rule) = conversion_rule {
-            return rule.apply_to(quantity)
-        } else {
-            todo!("Error")
-        }
+        ConversionRule { from, to, factor }
     }
 }
 
 #[cfg(test)]
 mod test {
-    use crate::Conversion;
-    use crate::conversion::Unit;
+    use crate::ConversionRequest;
+    use crate::Unit;
     use speculoos::prelude::*;
 
     fn test_conversion(from: Unit, to: Unit, quantity: f64) -> f64 {
-        Conversion {
-            from,
-            to,
-            quantity,
-        }.execute()
+        ConversionRequest { from, to, quantity }.execute()
     }
 
     #[test]
     fn from_pound_to_gram() {
         let result = test_conversion(Unit::Lb, Unit::Gram, 1.0);
-        assert_that!(result).is_equal_to(453.59237);
+        assert_that!(result).is_close_to(453.59237, 0.00001);
     }
 
     #[test]
     fn from_pound_to_kilo() {
         let result = test_conversion(Unit::Lb, Unit::Kilo, 1.0);
-        assert_that!(result).is_equal_to(0.45359237);
+        assert_that!(result).is_close_to(0.45359237, 0.00001);
     }
 
     #[test]
     fn from_pound_to_ton() {
         let result = test_conversion(Unit::Lb, Unit::Ton, 1.0);
-        assert_that!(result).is_equal_to(0.00045359);
+        assert_that!(result).is_close_to(0.00045359, 0.00000001);
     }
 
     #[test]
     fn from_kilo_to_pound() {
         let result = test_conversion(Unit::Kilo, Unit::Lb, 1.0);
-        assert_that!(result).is_equal_to(2.20462262);
+        assert_that!(result).is_close_to(2.20462262, 0.00001);
     }
 
     #[test]
     fn from_kilo_to_gram() {
         let result = test_conversion(Unit::Kilo, Unit::Gram, 1.0);
-        assert_that!(result).is_equal_to(1000.0);
+        assert_that!(result).is_close_to(1000.0, 0.00001);
     }
 
     #[test]
     fn from_kilo_to_ton() {
         let result = test_conversion(Unit::Kilo, Unit::Ton, 1.0);
-        assert_that!(result).is_equal_to(0.001);
+        assert_that!(result).is_close_to(0.001, 0.00001);
     }
 
     #[test]
     fn from_gram_to_pound() {
         let result = test_conversion(Unit::Gram, Unit::Lb, 1.0);
-        assert_that!(result).is_equal_to(0.00220462);
+        assert_that!(result).is_close_to(0.00220462, 0.00001);
     }
 
     #[test]
     fn from_gram_to_kilo() {
         let result = test_conversion(Unit::Gram, Unit::Kilo, 1.0);
-        assert_that!(result).is_equal_to(0.001);
+        assert_that!(result).is_close_to(0.001, 0.00001);
     }
 
     #[test]
     fn from_gram_to_ton() {
         let result = test_conversion(Unit::Gram, Unit::Ton, 1.0);
-        assert_that!(result).is_equal_to(0.000001);
+        assert_that!(result).is_close_to(0.00001, 0.00001);
     }
 
     #[test]
     fn from_ton_to_pound() {
         let result = test_conversion(Unit::Ton, Unit::Lb, 1.0);
-        assert_that!(result).is_equal_to(2204.62262185);
+        assert_that!(result).is_close_to(2204.62262185, 0.00001);
     }
 
     #[test]
     fn from_ton_to_kilo() {
         let result = test_conversion(Unit::Ton, Unit::Kilo, 1.0);
-        assert_that!(result).is_equal_to(1000.0);
+        assert_that!(result).is_close_to(1000.0, 0.00001);
     }
 
     #[test]
     fn from_ton_to_gram() {
         let result = test_conversion(Unit::Ton, Unit::Gram, 1.0);
-        assert_that!(result).is_equal_to(1000_000.0);
+        assert_that!(result).is_close_to(1000_000.0, 0.00001);
     }
 }

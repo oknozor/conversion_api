@@ -1,8 +1,0 @@
-POST localhost:8000/convert
-Content-Type: application/json
-
-{
-  "from": "Gram",
-  "to": "Kilo",
-  "quantity": 1000
-}

@@ -77,14 +77,11 @@ impl Unit {
     }
 
     fn convert_to(self, to: Unit, quantity: f64) -> f64 {
-        let rules = &CONVERSION_TABLE;
-        let conversion_rule = rules.iter().find(|rule| rule.from == self && to == rule.to);
-
-        if let Some(rule) = conversion_rule {
-            rule.convert(quantity)
-        } else {
-            unreachable!("Conversion should be representable")
-        }
+        CONVERSION_TABLE
+            .iter()
+            .find(|rule| rule.from == self && to == rule.to)
+            .expect("Conversion should be representable")
+            .convert(quantity)
     }
 }
 
@@ -99,7 +96,7 @@ mod test {
 
     #[test]
     fn conversion_should_works() {
-        let client = Client::new(rocket()).expect("valid rocket instance");
+        let client = Client::untracked(rocket()).expect("valid rocket instance");
         let request = ConversionRequest {
             from: Unit::Gram,
             to: Unit::Kilo,
